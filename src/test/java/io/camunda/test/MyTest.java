@@ -1,6 +1,7 @@
 package io.camunda.test;
 
 import io.camunda.zeebe.client.ZeebeClient;
+import io.camunda.zeebe.client.api.ZeebeFuture;
 import io.camunda.zeebe.client.api.response.DeploymentEvent;
 import io.camunda.zeebe.client.api.response.ProcessInstanceResult;
 import io.camunda.zeebe.model.bpmn.Bpmn;
@@ -11,6 +12,13 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 
+import java.io.IOException;
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 @Testcontainers
@@ -20,7 +28,7 @@ public class MyTest {
     private final ZeebeContainer zeebeContainer = new ZeebeContainer(
             // DockerImageName.parse("camunda/zeebe:8.5.0")
             DockerImageName.parse("camunda/zeebe:SNAPSHOT")
-    );
+    ).withAdditionalExposedPort(8080);
 
     private ZeebeClient createClient() {
         final ZeebeClient client =
@@ -69,5 +77,44 @@ public class MyTest {
                 .isEqualTo(deploymentEvent.getProcesses().get(0).getProcessDefinitionKey());
     }
 
+
+    @Test
+    void shouldCompleteUserTask() throws URISyntaxException, IOException, InterruptedException {
+        // given
+        ZeebeClient client = createClient();
+
+        client.newDeployResourceCommand().addProcessModel(
+                Bpmn.createExecutableProcess("process")
+                        .startEvent()
+                        .userTask("A")
+                        .zeebeUserTask()
+                        .endEvent()
+                        .done(), "process.bpmn"
+        ).send().join();
+
+        ZeebeFuture<ProcessInstanceResult> resultFuture = client.newCreateInstanceCommand().bpmnProcessId("process").latestVersion()
+                .withResult()
+                .send();
+
+        long userTaskKey = 2251799813685256L;
+
+        // when
+        String zeebeRestEndpoint = "http://" + zeebeContainer.getExternalAddress(8080);
+
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(new URI( zeebeRestEndpoint + "/v1/user-tasks/" + userTaskKey + "/completion"))
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString("{\n  \"variables\": {\"x\":1}}"))
+                .build();
+
+        HttpResponse<String> response = HttpClient.newBuilder()
+                .build()
+                .send(request, HttpResponse.BodyHandlers.ofString());
+
+        // then
+        assertThat(response.statusCode()).isEqualTo(204);
+
+        assertThat(resultFuture.join().getVariablesAsMap()).containsEntry("x", 1);
+    }
 
 }
