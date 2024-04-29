@@ -8,6 +8,9 @@ import io.camunda.zeebe.model.bpmn.Bpmn;
 import io.camunda.zeebe.model.bpmn.BpmnModelInstance;
 import io.zeebe.containers.ZeebeContainer;
 import org.junit.jupiter.api.Test;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.testcontainers.containers.output.Slf4jLogConsumer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
@@ -24,97 +27,105 @@ import static org.assertj.core.api.Assertions.assertThat;
 @Testcontainers
 public class MyTest {
 
-    @Container
-    private final ZeebeContainer zeebeContainer = new ZeebeContainer(
-            // DockerImageName.parse("camunda/zeebe:8.5.0")
-            DockerImageName.parse("camunda/zeebe:SNAPSHOT")
-    ).withAdditionalExposedPort(8080);
+  private static final Logger LOGGER = LoggerFactory.getLogger("io.camunda.test");
 
-    private ZeebeClient createClient() {
-        final ZeebeClient client =
-                ZeebeClient.newClientBuilder()
-                        .gatewayAddress(zeebeContainer.getExternalGatewayAddress())
-                        .usePlaintext()
-                        .build();
-        return client;
-    }
+  @Container
+  private final ZeebeContainer zeebeContainer =
+      new ZeebeContainer(
+              // DockerImageName.parse("camunda/zeebe:8.5.0")
+              DockerImageName.parse("camunda/zeebe:SNAPSHOT"))
+          .withAdditionalExposedPort(8080)
+          .withLogConsumer(new Slf4jLogConsumer(LOGGER));
 
-    @Test
-    void testZeebeVersion() {
-        // given
-        final ZeebeClient client = createClient();
+  private ZeebeClient createClient() {
+    final ZeebeClient client =
+        ZeebeClient.newClientBuilder()
+            .gatewayAddress(zeebeContainer.getExternalGatewayAddress())
+            .usePlaintext()
+            .build();
+    return client;
+  }
 
-        // when
-        String gatewayVersion = client.newTopologyRequest().send().join().getGatewayVersion();
+  @Test
+  void testZeebeVersion() {
+    // given
+    final ZeebeClient client = createClient();
 
-        // then
-        assertThat(gatewayVersion).isEqualTo("8.6.0-SNAPSHOT");
-    }
+    // when
+    String gatewayVersion = client.newTopologyRequest().send().join().getGatewayVersion();
 
-    @Test
-    void shouldConnectToZeebe() {
-        // given
-        final ZeebeClient client = createClient();
-        final BpmnModelInstance process =
-                Bpmn.createExecutableProcess("process").startEvent().endEvent().done();
+    // then
+    assertThat(gatewayVersion).isEqualTo("8.6.0-SNAPSHOT");
+  }
 
-        // when
-        // do something (e.g. deploy a process)
-        final DeploymentEvent deploymentEvent =
-                client.newDeployCommand().addProcessModel(process, "process.bpmn").send().join();
+  @Test
+  void shouldConnectToZeebe() {
+    // given
+    final ZeebeClient client = createClient();
+    final BpmnModelInstance process =
+        Bpmn.createExecutableProcess("process").startEvent().endEvent().done();
 
-        // then
-        // verify (e.g. we can create an instance of the deployed process)
-        final ProcessInstanceResult processInstanceResult =
-                client
-                        .newCreateInstanceCommand()
-                        .bpmnProcessId("process")
-                        .latestVersion()
-                        .withResult()
-                        .send()
-                        .join();
-        assertThat(processInstanceResult.getProcessDefinitionKey())
-                .isEqualTo(deploymentEvent.getProcesses().get(0).getProcessDefinitionKey());
-    }
+    // when
+    final DeploymentEvent deploymentEvent =
+        client.newDeployCommand().addProcessModel(process, "process.bpmn").send().join();
 
+    // then
+    final ProcessInstanceResult processInstanceResult =
+        client
+            .newCreateInstanceCommand()
+            .bpmnProcessId("process")
+            .latestVersion()
+            .withResult()
+            .send()
+            .join();
+    assertThat(processInstanceResult.getProcessDefinitionKey())
+        .isEqualTo(deploymentEvent.getProcesses().get(0).getProcessDefinitionKey());
+  }
 
-    @Test
-    void shouldCompleteUserTask() throws URISyntaxException, IOException, InterruptedException {
-        // given
-        ZeebeClient client = createClient();
+  @Test
+  void shouldCompleteUserTask() throws URISyntaxException, IOException, InterruptedException {
+    // given
+    ZeebeClient client = createClient();
 
-        client.newDeployResourceCommand().addProcessModel(
-                Bpmn.createExecutableProcess("process")
-                        .startEvent()
-                        .userTask("A")
-                        .zeebeUserTask()
-                        .endEvent()
-                        .done(), "process.bpmn"
-        ).send().join();
+    client
+        .newDeployResourceCommand()
+        .addProcessModel(
+            Bpmn.createExecutableProcess("process")
+                .startEvent()
+                .userTask("A")
+                .zeebeUserTask()
+                .endEvent()
+                .done(),
+            "process.bpmn")
+        .send()
+        .join();
 
-        ZeebeFuture<ProcessInstanceResult> resultFuture = client.newCreateInstanceCommand().bpmnProcessId("process").latestVersion()
-                .withResult()
-                .send();
+    ZeebeFuture<ProcessInstanceResult> resultFuture =
+        client
+            .newCreateInstanceCommand()
+            .bpmnProcessId("process")
+            .latestVersion()
+            .withResult()
+            .send();
 
-        long userTaskKey = 2251799813685256L;
+    long userTaskKey = 2251799813685256L;
 
-        // when
-        String zeebeRestEndpoint = "http://" + zeebeContainer.getExternalAddress(8080);
+    // when
+    String zeebeRestEndpoint = "http://" + zeebeContainer.getExternalAddress(8080);
 
-        HttpRequest request = HttpRequest.newBuilder()
-                .uri(new URI( zeebeRestEndpoint + "/v1/user-tasks/" + userTaskKey + "/completion"))
-                .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString("{\n  \"variables\": {\"x\":1}}"))
-                .build();
+    HttpRequest request =
+        HttpRequest.newBuilder()
+            .uri(new URI(zeebeRestEndpoint + "/v1/user-tasks/" + userTaskKey + "/completion"))
+            .header("Content-Type", "application/json")
+            .POST(HttpRequest.BodyPublishers.ofString("{\n  \"variables\": {\"x\":1}}"))
+            .build();
 
-        HttpResponse<String> response = HttpClient.newBuilder()
-                .build()
-                .send(request, HttpResponse.BodyHandlers.ofString());
+    HttpResponse<String> response =
+        HttpClient.newBuilder().build().send(request, HttpResponse.BodyHandlers.ofString());
 
-        // then
-        assertThat(response.statusCode()).isEqualTo(204);
+    // then
+    assertThat(response.statusCode()).isEqualTo(204);
 
-        assertThat(resultFuture.join().getVariablesAsMap()).containsEntry("x", 1);
-    }
-
+    assertThat(resultFuture.join().getVariablesAsMap()).containsEntry("x", 1);
+  }
 }
