@@ -1,8 +1,6 @@
 package io.camunda.test;
 
 import io.camunda.zeebe.client.ZeebeClient;
-import io.camunda.zeebe.protocol.Protocol;
-import org.jetbrains.annotations.NotNull;
 import org.junit.jupiter.api.extension.BeforeEachCallback;
 import org.junit.jupiter.api.extension.ExtensionContext;
 import org.junit.platform.commons.util.ExceptionUtils;
