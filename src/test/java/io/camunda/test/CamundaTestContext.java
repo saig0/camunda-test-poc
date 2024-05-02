@@ -21,6 +21,7 @@ public class CamundaTestContext implements ExtensionContext.Store.CloseableResou
   private final Network network;
   private final ZeebeContainer zeebeContainer;
   private final ElasticsearchContainer elasticsearchContainer;
+  private final GenericContainer<?> operateContainer;
 
   public CamundaTestContext() {
 
@@ -28,6 +29,7 @@ public class CamundaTestContext implements ExtensionContext.Store.CloseableResou
 
     elasticsearchContainer = createElasticsearch(network);
     zeebeContainer = createZeebe(network);
+    operateContainer = createOperate(network);
   }
 
   private ElasticsearchContainer createElasticsearch(final Network network) {
@@ -49,6 +51,19 @@ public class CamundaTestContext implements ExtensionContext.Store.CloseableResou
         .withEnv("ZEEBE_BROKER_EXPORTERS_ELASTICSEARCH_ARGS_BULK_SIZE", "1");
   }
 
+  private GenericContainer<?> createOperate(final Network network) {
+    final var container =
+        new GenericContainer<>(DockerImageName.parse("camunda/operate:SNAPSHOT"))
+            .withNetwork(network)
+            .withNetworkAliases("operate")
+            .withLogConsumer(new Slf4jLogConsumer(LOGGER))
+            .withEnv("CAMUNDA_OPERATE_ZEEBE_GATEWAYADDRESS", "zeebe:26500")
+            .withEnv("CAMUNDA_OPERATE_ELASTICSEARCH_URL", "http://elasticsearch:9200")
+            .withEnv("CAMUNDA_OPERATE_ZEEBEELASTICSEARCH_URL", "http://elasticsearch:9200");
+    container.addExposedPort(8080);
+    return container;
+  }
+
   public void start() {
     LOGGER.info("Starting containers...");
 
@@ -57,8 +72,7 @@ public class CamundaTestContext implements ExtensionContext.Store.CloseableResou
 
     containers.parallel().forEach(GenericContainer::start);
 
-    //    elasticsearchContainer.start();
-    //    zeebeContainer.start();
+    operateContainer.start();
 
     LOGGER.info("...Container started");
   }
@@ -67,6 +81,7 @@ public class CamundaTestContext implements ExtensionContext.Store.CloseableResou
   public void close() throws Throwable {
     LOGGER.info("Closing containers...");
 
+    operateContainer.stop();
     zeebeContainer.shutdownGracefully(Duration.ofSeconds(10));
     elasticsearchContainer.stop();
 
@@ -81,5 +96,9 @@ public class CamundaTestContext implements ExtensionContext.Store.CloseableResou
 
   public ElasticsearchContainer getElasticsearchContainer() {
     return elasticsearchContainer;
+  }
+
+  public GenericContainer<?> getOperateContainer() {
+    return operateContainer;
   }
 }

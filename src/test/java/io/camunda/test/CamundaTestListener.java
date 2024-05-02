@@ -40,6 +40,7 @@ public class CamundaTestListener implements BeforeEachCallback {
 
   private void injectFields(
       final ExtensionContext context, final Object testInstance, final Class<?> testClass) {
+
     ReflectionUtils.findFields(
             testClass,
             field -> ReflectionUtils.isNotStatic(field) && field.getType() == ZeebeClient.class,
@@ -47,7 +48,7 @@ public class CamundaTestListener implements BeforeEachCallback {
         .forEach(
             field -> {
               try {
-                final var camundaTestContext = lookupOrCreate(context);
+                  final var camundaTestContext = lookupOrCreate(context);
 
                 final String zeebeGatewayAddress =
                     camundaTestContext.getZeebeContainer().getExternalGatewayAddress();
@@ -60,6 +61,21 @@ public class CamundaTestListener implements BeforeEachCallback {
                 ExceptionUtils.throwAsUncheckedException(t);
               }
             });
+
+      ReflectionUtils.findFields(
+                      testClass,
+                      field -> ReflectionUtils.isNotStatic(field) && field.getType() == CamundaTestContext.class,
+                      ReflectionUtils.HierarchyTraversalMode.TOP_DOWN)
+              .forEach(
+                      field -> {
+                          try {
+                              final var camundaTestContext = lookupOrCreate(context);
+                              makeAccessible(field).set(testInstance, camundaTestContext);
+
+                          } catch (final Throwable t) {
+                              ExceptionUtils.throwAsUncheckedException(t);
+                          }
+                      });
   }
 
   private ZeebeClient createZeebeClient(final String gatewayAddress) {
