@@ -1,15 +1,15 @@
 package io.camunda.test;
 
+import static org.junit.platform.commons.util.ReflectionUtils.makeAccessible;
+
+import io.camunda.zeebe.client.CredentialsProvider;
 import io.camunda.zeebe.client.ZeebeClient;
+import java.lang.reflect.Method;
+import java.util.List;
 import org.junit.jupiter.api.extension.BeforeEachCallback;
 import org.junit.jupiter.api.extension.ExtensionContext;
 import org.junit.platform.commons.util.ExceptionUtils;
 import org.junit.platform.commons.util.ReflectionUtils;
-
-import java.lang.reflect.Method;
-import java.util.List;
-
-import static org.junit.platform.commons.util.ReflectionUtils.makeAccessible;
 
 public class CamundaTestListener implements BeforeEachCallback {
 
@@ -47,13 +47,12 @@ public class CamundaTestListener implements BeforeEachCallback {
         .forEach(
             field -> {
               try {
+                final var camundaTestContext = lookupOrCreate(context);
+
                 final String zeebeGatewayAddress =
-                    lookupOrCreate(context).getZeebeContainer().getExternalGatewayAddress();
+                    camundaTestContext.getZeebeContainer().getExternalGatewayAddress();
 
-                final String testTenantId = getTenantId(context);
-
-                final ZeebeClient zeebeClient =
-                    createZeebeClient(zeebeGatewayAddress, testTenantId);
+                final ZeebeClient zeebeClient = createZeebeClient(zeebeGatewayAddress);
 
                 makeAccessible(field).set(testInstance, zeebeClient);
 
@@ -63,20 +62,7 @@ public class CamundaTestListener implements BeforeEachCallback {
             });
   }
 
-  private static String getTenantId(ExtensionContext context) {
-    final String testClassName = context.getTestClass().map(Class::getSimpleName).orElse("?");
-
-    final String testMethodName = context.getTestMethod().map(Method::getName).orElse("?");
-
-    return (testClassName + "_" + testMethodName).substring(0, 30);
-  }
-
-  private ZeebeClient createZeebeClient(final String gatewayAddress, final String tenantId) {
-    return ZeebeClient.newClientBuilder()
-        .gatewayAddress(gatewayAddress)
-        .usePlaintext()
-        .defaultTenantId(tenantId)
-        .defaultJobWorkerTenantIds(List.of(tenantId))
-        .build();
+  private ZeebeClient createZeebeClient(final String gatewayAddress) {
+    return ZeebeClient.newClientBuilder().gatewayAddress(gatewayAddress).usePlaintext().build();
   }
 }

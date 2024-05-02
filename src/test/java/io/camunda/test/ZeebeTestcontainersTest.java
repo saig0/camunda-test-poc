@@ -25,15 +25,13 @@ import java.net.http.HttpResponse;
 import static org.assertj.core.api.Assertions.assertThat;
 
 @Testcontainers
-public class MyTest {
+public class ZeebeTestcontainersTest {
 
   private static final Logger LOGGER = LoggerFactory.getLogger("io.camunda.test");
 
   @Container
   private final ZeebeContainer zeebeContainer =
-      new ZeebeContainer(
-              // DockerImageName.parse("camunda/zeebe:8.5.0")
-              DockerImageName.parse("camunda/zeebe:SNAPSHOT"))
+      new ZeebeContainer(DockerImageName.parse("camunda/zeebe:SNAPSHOT"))
           .withAdditionalExposedPort(8080)
           .withLogConsumer(new Slf4jLogConsumer(LOGGER));
 

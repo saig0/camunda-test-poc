@@ -7,16 +7,11 @@ import io.camunda.zeebe.client.ZeebeClient;
 import io.camunda.zeebe.client.api.response.*;
 import io.camunda.zeebe.model.bpmn.Bpmn;
 import io.camunda.zeebe.model.bpmn.BpmnModelInstance;
-
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
-@ExtendWith(CamundaTestMultiInstanceListener.class)
-public class MultiTenancyTest {
-
-  private static final Logger LOGGER = LoggerFactory.getLogger("io.camunda.test");
+@ExtendWith(CamundaTestListener.class)
+public class ProcessTest {
 
   private ZeebeClient zeebeClient;
 
@@ -63,10 +58,8 @@ public class MultiTenancyTest {
             .send()
             .join();
 
-    assertThat(deploymentEvent.getTenantId())
-        .isEqualTo("io.camunda.test.MultiTenancyTest_shouldDeployProcess");
+    assertThat(deploymentEvent.getProcesses()).hasSize(1);
 
-    assertThat(processInstanceResult.getTenantId())
-        .isEqualTo("io.camunda.test.MultiTenancyTest_shouldDeployProcess");
+    assertThat(processInstanceResult.getProcessInstanceKey()).isPositive();
   }
 }
