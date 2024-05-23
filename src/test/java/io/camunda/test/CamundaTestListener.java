@@ -2,10 +2,11 @@ package io.camunda.test;
 
 import static org.junit.platform.commons.util.ReflectionUtils.makeAccessible;
 
-import io.camunda.zeebe.client.CredentialsProvider;
 import io.camunda.zeebe.client.ZeebeClient;
-import java.lang.reflect.Method;
-import java.util.List;
+
+import java.util.Collections;
+import java.util.Map;
+
 import org.junit.jupiter.api.extension.BeforeEachCallback;
 import org.junit.jupiter.api.extension.ExtensionContext;
 import org.junit.platform.commons.util.ExceptionUtils;
@@ -13,7 +14,19 @@ import org.junit.platform.commons.util.ReflectionUtils;
 
 public class CamundaTestListener implements BeforeEachCallback {
 
-  @Override
+    private final boolean enableConnectors;
+    private final Map<String, String> connectorSecrets;
+
+    public CamundaTestListener() {
+        this(false, Collections.emptyMap());
+    }
+
+    public CamundaTestListener(boolean enableConnectors, Map<String, String> connectorSecrets) {
+        this.enableConnectors = enableConnectors;
+        this.connectorSecrets = connectorSecrets;
+    }
+
+    @Override
   public void beforeEach(ExtensionContext extensionContext) throws Exception {
     extensionContext
         .getRequiredTestInstances()
@@ -32,8 +45,8 @@ public class CamundaTestListener implements BeforeEachCallback {
         store.getOrComputeIfAbsent(
             "camunda-test-context",
             (key) -> {
-              CamundaTestContext camundaTestContext = new CamundaTestContext();
-              camundaTestContext.start();
+              CamundaTestContext camundaTestContext = new CamundaTestContext(connectorSecrets);
+              camundaTestContext.start(enableConnectors);
               return camundaTestContext;
             });
   }
@@ -80,5 +93,9 @@ public class CamundaTestListener implements BeforeEachCallback {
 
   private ZeebeClient createZeebeClient(final String gatewayAddress) {
     return ZeebeClient.newClientBuilder().gatewayAddress(gatewayAddress).usePlaintext().build();
+  }
+
+  public static CamundaTestListener withConnectors(boolean enableConnectors, Map<String, String> connectorSecrets) {
+        return new CamundaTestListener(enableConnectors, connectorSecrets);
   }
 }

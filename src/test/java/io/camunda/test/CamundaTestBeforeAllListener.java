@@ -4,7 +4,6 @@ import static org.junit.platform.commons.util.ReflectionUtils.makeAccessible;
 
 import io.camunda.zeebe.client.ZeebeClient;
 import org.junit.jupiter.api.extension.BeforeAllCallback;
-import org.junit.jupiter.api.extension.BeforeEachCallback;
 import org.junit.jupiter.api.extension.ExtensionContext;
 import org.junit.platform.commons.util.ExceptionUtils;
 import org.junit.platform.commons.util.ReflectionUtils;
@@ -29,7 +28,7 @@ public class CamundaTestBeforeAllListener implements BeforeAllCallback {
             "camunda-test-context",
             (key) -> {
               CamundaTestContext camundaTestContext = new CamundaTestContext();
-              camundaTestContext.start();
+              camundaTestContext.start(false);
               return camundaTestContext;
             });
   }

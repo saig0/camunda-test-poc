@@ -2,6 +2,8 @@ package io.camunda.test;
 
 import io.zeebe.containers.ZeebeContainer;
 import java.time.Duration;
+import java.util.Collections;
+import java.util.Map;
 import java.util.stream.Stream;
 
 import org.junit.jupiter.api.extension.ExtensionContext;
@@ -9,7 +11,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.Network;
-import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.containers.output.Slf4jLogConsumer;
 import org.testcontainers.elasticsearch.ElasticsearchContainer;
 import org.testcontainers.utility.DockerImageName;
@@ -22,14 +23,19 @@ public class CamundaTestContext implements ExtensionContext.Store.CloseableResou
   private final ZeebeContainer zeebeContainer;
   private final ElasticsearchContainer elasticsearchContainer;
   private final GenericContainer<?> operateContainer;
+  private final GenericContainer<?> connectorsContainer;
 
   public CamundaTestContext() {
+    this(Collections.emptyMap());
+  }
 
+  public CamundaTestContext(Map<String, String> connectorSecrets) {
     network = Network.newNetwork();
 
     elasticsearchContainer = createElasticsearch(network);
     zeebeContainer = createZeebe(network);
     operateContainer = createOperate(network);
+    connectorsContainer = createConnectors(network, connectorSecrets);
   }
 
   private ElasticsearchContainer createElasticsearch(final Network network) {
@@ -64,7 +70,25 @@ public class CamundaTestContext implements ExtensionContext.Store.CloseableResou
     return container;
   }
 
-  public void start() {
+  private GenericContainer<?> createConnectors(final Network network, Map<String, String> connectorSecrets) {
+    final var container =
+        new GenericContainer<>(DockerImageName.parse("camunda/connectors-bundle:SNAPSHOT"))
+            .withNetwork(network)
+            .withNetworkAliases("connectors")
+            .withLogConsumer(new Slf4jLogConsumer(LOGGER))
+            .withEnv("ZEEBE_CLIENT_BROKER_GATEWAY-ADDRESS", "zeebe:26500")
+            .withEnv("ZEEBE_CLIENT_SECURITY_PLAINTEXT", "true")
+            .withEnv("CAMUNDA_OPERATE_CLIENT_URL", "http://operate:8080")
+            .withEnv("CAMUNDA_OPERATE_CLIENT_USERNAME", "demo")
+            .withEnv("CAMUNDA_OPERATE_CLIENT_PASSWORD", "demo");
+
+    connectorSecrets.forEach(container::addEnv);
+
+    container.addExposedPort(8080);
+    return container;
+  }
+
+  public void start(final boolean enabledConnectors) {
     LOGGER.info("Starting containers...");
 
     final Stream<GenericContainer<?>> containers =
@@ -74,12 +98,20 @@ public class CamundaTestContext implements ExtensionContext.Store.CloseableResou
 
     operateContainer.start();
 
+    if (enabledConnectors) {
+      connectorsContainer.start();
+    }
+
     LOGGER.info("...Container started");
   }
 
   @Override
   public void close() throws Throwable {
     LOGGER.info("Closing containers...");
+
+    if (connectorsContainer.isRunning()) {
+      connectorsContainer.stop();
+    }
 
     operateContainer.stop();
     zeebeContainer.shutdownGracefully(Duration.ofSeconds(10));
@@ -100,5 +132,9 @@ public class CamundaTestContext implements ExtensionContext.Store.CloseableResou
 
   public GenericContainer<?> getOperateContainer() {
     return operateContainer;
+  }
+
+  public GenericContainer<?> getConnectorsContainer() {
+    return connectorsContainer;
   }
 }
