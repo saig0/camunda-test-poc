@@ -22,6 +22,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -236,18 +237,19 @@ public class ProcessTest {
             + camundaTestContext.getTasklistContainer().getMappedPort(8080);
 
     HttpRequest authRequest =
-            HttpRequest.newBuilder()
-                    .uri(new URI(tasklistEndpoint + "/api/login?username=demo&password=demo"))
-                    .POST(HttpRequest.BodyPublishers.noBody())
-                    .build();
+        HttpRequest.newBuilder()
+            .uri(new URI(tasklistEndpoint + "/api/login?username=demo&password=demo"))
+            .POST(HttpRequest.BodyPublishers.noBody())
+            .build();
 
     HttpClient httpClient =
-            HttpClient.newBuilder()
-                    .connectTimeout(Duration.ofSeconds(10))
-                    .cookieHandler(new CookieManager())
-                    .build();
+        HttpClient.newBuilder()
+            .connectTimeout(Duration.ofSeconds(10))
+            .cookieHandler(new CookieManager())
+            .build();
 
-    HttpResponse<String> authResponse = httpClient.send(authRequest, HttpResponse.BodyHandlers.ofString());
+    HttpResponse<String> authResponse =
+        httpClient.send(authRequest, HttpResponse.BodyHandlers.ofString());
     assertThat(authResponse.statusCode()).isEqualTo(204);
 
     HttpRequest findTasksRequest =
@@ -271,7 +273,8 @@ public class ProcessTest {
               assertThat(findTasksResponse.statusCode()).isEqualTo(200);
 
               List<TaskDto> searchTasksResponse =
-                  objectMapper.readValue(findTasksResponse.body(), new TypeReference<List<TaskDto>>() {});
+                  objectMapper.readValue(
+                      findTasksResponse.body(), new TypeReference<List<TaskDto>>() {});
 
               assertThat(searchTasksResponse).isNotEmpty();
 
@@ -299,6 +302,68 @@ public class ProcessTest {
 
     // then
     assertThat(completeTaskResponse.statusCode()).isEqualTo(204);
+  }
+
+  @Test
+  void shouldTriggerTimer() throws URISyntaxException, IOException, InterruptedException {
+    // given
+    final BpmnModelInstance process =
+        Bpmn.createExecutableProcess("process")
+            .startEvent()
+            .intermediateCatchEvent()
+            .timerWithDuration("PT1H")
+            .serviceTask("debug", t -> t.zeebeJobType("debug"))
+            .endEvent()
+            .done();
+
+    final List<Long> jobProcessInstanceKeys = new ArrayList<>();
+
+    zeebeClient
+        .newStreamJobsCommand()
+        .jobType("debug")
+        .consumer(
+            job -> {
+              jobProcessInstanceKeys.add(job.getProcessInstanceKey());
+            })
+        .send();
+
+    zeebeClient.newDeployResourceCommand().addProcessModel(process, "process.bpmn").send().join();
+
+    final long processInstanceKey =
+        zeebeClient
+            .newCreateInstanceCommand()
+            .bpmnProcessId("process")
+            .latestVersion()
+            .send()
+            .join()
+            .getProcessInstanceKey();
+
+    // when
+    String zeebeManagementEndpoint =
+        "http://"
+            + camundaTestContext.getZeebeContainer().getHost()
+            + ":"
+            + camundaTestContext.getZeebeContainer().getMappedPort(9600);
+
+    HttpRequest request =
+        HttpRequest.newBuilder()
+            .uri(new URI(zeebeManagementEndpoint + "/actuator/clock/add"))
+            .header("Content-Type", "application/json")
+            .POST(
+                HttpRequest.BodyPublishers.ofString(
+                    "{\n  \"offsetMilli\": " + Duration.ofHours(1).toMillis() + "}"))
+            .build();
+
+    HttpResponse<String> response =
+        HttpClient.newBuilder().build().send(request, HttpResponse.BodyHandlers.ofString());
+    assertThat(response.statusCode()).isEqualTo(200);
+
+    // then
+    Awaitility.await()
+        .untilAsserted(
+            () -> {
+              assertThat(jobProcessInstanceKeys).contains(processInstanceKey);
+            });
   }
 
   @JsonIgnoreProperties(ignoreUnknown = true)

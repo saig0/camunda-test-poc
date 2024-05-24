@@ -56,7 +56,8 @@ public class CamundaTestContext implements ExtensionContext.Store.CloseableResou
             "ZEEBE_BROKER_EXPORTERS_ELASTICSEARCH_CLASSNAME",
             "io.camunda.zeebe.exporter.ElasticsearchExporter")
         .withEnv("ZEEBE_BROKER_EXPORTERS_ELASTICSEARCH_ARGS_URL", "elasticsearch:9200")
-        .withEnv("ZEEBE_BROKER_EXPORTERS_ELASTICSEARCH_ARGS_BULK_SIZE", "1");
+        .withEnv("ZEEBE_BROKER_EXPORTERS_ELASTICSEARCH_ARGS_BULK_SIZE", "1")
+        .withEnv("ZEEBE_CLOCK_CONTROLLED", "true");
   }
 
   private GenericContainer<?> createOperate(final Network network) {
