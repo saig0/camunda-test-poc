@@ -23,6 +23,7 @@ public class CamundaTestContext implements ExtensionContext.Store.CloseableResou
   private final ZeebeContainer zeebeContainer;
   private final ElasticsearchContainer elasticsearchContainer;
   private final GenericContainer<?> operateContainer;
+  private final GenericContainer<?> tasklistContainer;
   private final GenericContainer<?> connectorsContainer;
 
   public CamundaTestContext() {
@@ -35,6 +36,7 @@ public class CamundaTestContext implements ExtensionContext.Store.CloseableResou
     elasticsearchContainer = createElasticsearch(network);
     zeebeContainer = createZeebe(network);
     operateContainer = createOperate(network);
+    tasklistContainer = createTasklist(network);
     connectorsContainer = createConnectors(network, connectorSecrets);
   }
 
@@ -70,7 +72,23 @@ public class CamundaTestContext implements ExtensionContext.Store.CloseableResou
     return container;
   }
 
-  private GenericContainer<?> createConnectors(final Network network, Map<String, String> connectorSecrets) {
+  private GenericContainer<?> createTasklist(final Network network) {
+    final var container =
+        new GenericContainer<>(DockerImageName.parse("camunda/tasklist:SNAPSHOT"))
+            .withNetwork(network)
+            .withNetworkAliases("tasklist")
+            .withLogConsumer(new Slf4jLogConsumer(LOGGER))
+            .withEnv("CAMUNDA_TASKLIST_ZEEBE_GATEWAYADDRESS", "zeebe:26500")
+            .withEnv("CAMUNDA_TASKLIST_ZEEBE_RESTADDRESS", "http://zeebe:8080")
+            .withEnv("CAMUNDA_TASKLIST_ELASTICSEARCH_URL", "http://elasticsearch:9200")
+            .withEnv("CAMUNDA_TASKLIST_ZEEBEELASTICSEARCH_URL", "http://elasticsearch:9200")
+            .withEnv("CAMUNDA_TASKLIST_CSRFPREVENTIONENABLED", "false"); // disable CSRF protection
+    container.addExposedPort(8080);
+    return container;
+  }
+
+  private GenericContainer<?> createConnectors(
+      final Network network, Map<String, String> connectorSecrets) {
     final var container =
         new GenericContainer<>(DockerImageName.parse("camunda/connectors-bundle:SNAPSHOT"))
             .withNetwork(network)
@@ -97,6 +115,7 @@ public class CamundaTestContext implements ExtensionContext.Store.CloseableResou
     containers.parallel().forEach(GenericContainer::start);
 
     operateContainer.start();
+    tasklistContainer.start();
 
     if (enabledConnectors) {
       connectorsContainer.start();
@@ -113,6 +132,7 @@ public class CamundaTestContext implements ExtensionContext.Store.CloseableResou
       connectorsContainer.stop();
     }
 
+    tasklistContainer.stop();
     operateContainer.stop();
     zeebeContainer.shutdownGracefully(Duration.ofSeconds(10));
     elasticsearchContainer.stop();
@@ -136,5 +156,9 @@ public class CamundaTestContext implements ExtensionContext.Store.CloseableResou
 
   public GenericContainer<?> getConnectorsContainer() {
     return connectorsContainer;
+  }
+
+  public GenericContainer<?> getTasklistContainer() {
+    return tasklistContainer;
   }
 }

@@ -3,6 +3,9 @@ package io.camunda.test;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.tuple;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.camunda.zeebe.client.ZeebeClient;
 import io.camunda.zeebe.client.api.ZeebeFuture;
 import io.camunda.zeebe.client.api.response.*;
@@ -19,6 +22,8 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicLong;
 
 @ExtendWith(CamundaTestListener.class)
 public class ProcessTest {
@@ -196,4 +201,106 @@ public class ProcessTest {
 
     assertThat(resultFuture.join().getVariablesAsMap()).containsEntry("x", 1);
   }
+
+  @Test
+  void shouldFindAndCompleteUserTask()
+      throws URISyntaxException, IOException, InterruptedException {
+    // given
+    zeebeClient
+        .newDeployResourceCommand()
+        .addProcessModel(
+            Bpmn.createExecutableProcess("process")
+                .startEvent()
+                .userTask("A")
+                .zeebeUserTask()
+                .endEvent()
+                .done(),
+            "process.bpmn")
+        .send()
+        .join();
+
+    final long processInstanceKey =
+        zeebeClient
+            .newCreateInstanceCommand()
+            .bpmnProcessId("process")
+            .latestVersion()
+            .send()
+            .join()
+            .getProcessInstanceKey();
+
+    // when
+    String tasklistEndpoint =
+        "http://"
+            + camundaTestContext.getTasklistContainer().getHost()
+            + ":"
+            + camundaTestContext.getTasklistContainer().getMappedPort(8080);
+
+    HttpRequest authRequest =
+            HttpRequest.newBuilder()
+                    .uri(new URI(tasklistEndpoint + "/api/login?username=demo&password=demo"))
+                    .POST(HttpRequest.BodyPublishers.noBody())
+                    .build();
+
+    HttpClient httpClient =
+            HttpClient.newBuilder()
+                    .connectTimeout(Duration.ofSeconds(10))
+                    .cookieHandler(new CookieManager())
+                    .build();
+
+    HttpResponse<String> authResponse = httpClient.send(authRequest, HttpResponse.BodyHandlers.ofString());
+    assertThat(authResponse.statusCode()).isEqualTo(204);
+
+    HttpRequest findTasksRequest =
+        HttpRequest.newBuilder()
+            .uri(new URI(tasklistEndpoint + "/v1/tasks/search"))
+            .header("Content-Type", "application/json")
+            .POST(
+                HttpRequest.BodyPublishers.ofString(
+                    "{\n  \"processInstanceKey\": \"" + processInstanceKey + "\"}"))
+            .build();
+
+    final ObjectMapper objectMapper = new ObjectMapper();
+    final var userTaskKey = new AtomicLong();
+
+    Awaitility.await()
+        .untilAsserted(
+            () -> {
+              HttpResponse<String> findTasksResponse =
+                  httpClient.send(findTasksRequest, HttpResponse.BodyHandlers.ofString());
+
+              assertThat(findTasksResponse.statusCode()).isEqualTo(200);
+
+              List<TaskDto> searchTasksResponse =
+                  objectMapper.readValue(findTasksResponse.body(), new TypeReference<List<TaskDto>>() {});
+
+              assertThat(searchTasksResponse).isNotEmpty();
+
+              TaskDto task = searchTasksResponse.getFirst();
+              userTaskKey.set(Long.parseLong(task.id()));
+            });
+
+    String zeebeRestEndpoint =
+        "http://"
+            + camundaTestContext.getZeebeContainer().getHost()
+            + ":"
+            + camundaTestContext.getZeebeContainer().getMappedPort(8080);
+
+    HttpRequest completeTaskRequest =
+        HttpRequest.newBuilder()
+            .uri(new URI(zeebeRestEndpoint + "/v1/user-tasks/" + userTaskKey.get() + "/completion"))
+            .header("Content-Type", "application/json")
+            .POST(HttpRequest.BodyPublishers.ofString("{\n  \"variables\": {\"x\":1}}"))
+            .build();
+
+    HttpResponse<String> completeTaskResponse =
+        HttpClient.newBuilder()
+            .build()
+            .send(completeTaskRequest, HttpResponse.BodyHandlers.ofString());
+
+    // then
+    assertThat(completeTaskResponse.statusCode()).isEqualTo(204);
+  }
+
+  @JsonIgnoreProperties(ignoreUnknown = true)
+  record TaskDto(String id) {}
 }
