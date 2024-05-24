@@ -18,6 +18,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.time.Instant;
 
 @ExtendWith(CamundaTestListener.class)
 public class ProcessTest {
@@ -121,6 +122,8 @@ public class ProcessTest {
 
     httpClient.send(authRequest, HttpResponse.BodyHandlers.ofString());
 
+    var before = Instant.now();
+
     HttpRequest request =
         HttpRequest.newBuilder()
             .uri(new URI(operateRestEndpoint + "/v1/process-instances/" + processInstanceKey))
@@ -129,6 +132,7 @@ public class ProcessTest {
             .build();
 
     Awaitility.await()
+        .pollInterval(Duration.ofMillis(100))
         .untilAsserted(
             () -> {
               HttpResponse<String> response =
@@ -138,6 +142,10 @@ public class ProcessTest {
               assertThat(response.statusCode()).isEqualTo(200);
               assertThat(response.body()).contains("\"state\":\"ACTIVE\"");
             });
+
+    var after = Instant.now();
+
+    System.out.println("Time for assertion: " + Duration.between(before, after));
   }
 
   @Test
